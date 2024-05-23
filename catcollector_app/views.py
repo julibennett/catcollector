@@ -1,13 +1,17 @@
+import uuid
+import boto3
+import os
 from django.shortcuts import render, redirect
 # from django.http import HttpResponse
 from django.views.generic import ListView, DetailView
 from django.views.generic.edit import CreateView, UpdateView, DeleteView
-from .models import Cat, Toy
+from .models import Cat, Toy, Photo
 from .forms import FeedingForm
 from django.contrib.auth import login
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
+
 
 # cats = [
 #   {'name': 'Lolo', 'breed': 'tabby', 'description': 'furry little demon', 'age': 3},
@@ -88,6 +92,30 @@ def assoc_delete(request, pk, toy_pk):
     cat = Cat.objects.get(id=pk)
     cat.toys.remove(toy_pk)
     return redirect('detail', cat_id=pk)
+
+@login_required
+def add_photo(request, cat_pk):
+  # grabbing our input file type's name attribute "photo-file"
+  photo_file = request.FILES.get('photo-file', None)
+  # if the user submitted a photo to upload
+  if photo_file:
+    # connect to s3 client via boto3
+    s3 = boto3.client('s3')
+    # unique key for s3 / needs image file extension too 
+    key = uuid.uuid4().hex[:6] + photo_file.name[photo_file.name.rfind('.'):]
+    # error handling just in case something goes wrong
+    try:
+      # grab the bucket name from .env
+      bucket = os.environ['S3_BUCKET']
+      s3.upload_fileobj(photo_file, bucket, key)
+      # build the string with everything
+      url = f"{os.environ['S3_BASE_URL']}{bucket}/{key}"
+      # assign a cat to our Photo object
+      Photo.objects.create(url=url, cat_id=cat_pk)
+    except Exception as e:
+      print('An error occurred uploading file to S3')
+      print(e)
+  return redirect('detail', cat_id=cat_pk)
 
 class CatCreate(LoginRequiredMixin, CreateView):
   model = Cat
